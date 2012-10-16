@@ -1,0 +1,229 @@
+unit Unit1;
+     
+interface
+
+uses
+  Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs,
+  StdCtrls, DBTables, Db, DBAccess, MSAccess, MemDS;
+
+type
+    TForm1 = class(TForm)
+    Button4: TButton;
+    Button5: TButton;
+    MSTable1: TMSTable;
+    MSConnection1: TMSConnection;
+    MSDataSource1: TDataSource;
+
+ //   procedure Button2Click(Sender: TObject);
+   
+    procedure Button4Click(Sender: TObject);
+    procedure Button5Click(Sender: TObject);
+
+
+
+private
+    { Private declarations }
+public
+    { Public declarations }
+
+
+end;
+
+
+var
+   Form1: TForm1;
+   Hbar: Thandle;
+   Con: dword;
+
+implementation
+
+//uses bstypes, bsapi;
+
+{$R *.DFM}
+  type
+  pabs_operation= ^abs_operation;
+  TOnCallBack = procedure(const pOperation: pabs_operation; dwMsgID: DWORD; pMsgData: Pointer); cdecl;
+   abs_operation = record
+    OperationID: DWORD; //ABS_DWORD OperationID;     ///< Unique operation ID or zero.
+    Context: Pointer; // void* Context;     ///< User defined pointer, passed into the operation callback.
+    Callback: TOnCallBack; //ABS_CALLBACK Callback;     ///< Pointer to application-defined function, implementing operation callback.
+    Timeout: Integer; //ABS_LONG Timeout;     ///< Timeout of user's inactivity in milliseconds
+    Flags: DWORD; //ABS_DWORD Flags;     ///< Bitmask of flags, tuning the operation process.
+  end;
+
+    abs_bir_header = record
+    Length: DWORD; //ABS_DWORD Length;     ///< Length of Header + Opaque Data
+    HeaderVersion: Byte;  //ABS_BYTE HeaderVersion;     ///< HeaderVersion = 1
+    aType: Byte;     ///< Type = 4 (BioAPI_BIR_DATA_TYPE_PROCESSED)
+    FormatOwner: WORD; //ABS_WORD FormatOwner;     ///< FormatOwner = 0x12 (STMicroelectronics)
+    FormatID: WORD; //ABS_WORD FormatID;     ///< FormatID = 0
+    Quality: char; //ABS_CHAR Quality;     ///< Quality = -2 (BioAPI_QUALITY is not supported)
+    Purpose: Byte; //ABS_BYTE Purpose;     ///< Purpose (BioAPI_PURPOSE_xxxx, ABS_PURPOSE_xxxx).
+    FactorsMask: DWORD;// ABS_DWORD FactorsMask;     ///< FactorsMask = 0x08 (BioAPI_FACTOR_FINGERPRINT)
+  end;
+
+  type
+  pabs_bir = ^abs_bir;
+  abs_bir = record
+  Header: abs_bir_header;     ///< BIR header
+  Data: array [0..1] of  BYTE ;     ///< The data composing the fingerprint template.
+  end;
+
+
+function ABSInitialize: Integer; stdcall; external 'bsapi.dll';
+function ABSTerminate: Integer; stdcall; external 'bsapi.dll';
+function ABSOpen(pszDsn: PChar;var phConnection: DWORD): Integer;stdcall; external 'bsapi.dll';
+function ABSClose(hConnection: DWORD): Integer;stdcall; external 'bsapi.dll';
+
+function ABSEnroll(hConnection: DWORD; pOperation: Pabs_operation;
+ ppEnrolledTemplate: pabs_bir;dwFlags: DWORD ): Integer;stdcall; external 'bsapi.dll';
+function ABSVerify(hConnection: DWORD; pOperation: Pabs_operation;
+  dwTemplateCount: DWORD; pTemplateArray: pabs_bir; var pResult: Integer; dwFlags: DWORD ): Integer;
+         stdcall; external 'bsapi.dll';
+
+Procedure ABSGetLastErrorInfo (var pErrorCode :dword ; var ppErrorMessage :  Pchar) stdcall; external 'bsapi.dll';
+
+procedure ABSFree(Memblock: Pointer); stdcall; external 'bsapi.dll';
+procedure ABSDefaultCallback(const pOperation: pabs_operation; dwMsgID: DWORD; pMsgData: Pointer);
+         stdcall; external 'bsgui.dll';
+
+function StreamToByteArray(Stream: TStream): Pointer;
+ var pos : Integer ;
+begin
+  if Assigned(Stream) then
+    begin
+      Result := AllocMem(Stream.Size);
+      Stream.Position := 0;
+      Stream.Read(Result^, Stream.Size);
+      end
+  else
+    Result := nil;
+end;
+
+
+ procedure TForm1.Button5Click(Sender: TObject);
+
+const
+  cDataCount  = 3;
+  cTemplCount = 1;
+var
+  i: Integer;
+
+  vOperation    : Pabs_operation;
+  vConnection   : Dword;
+  pIntValue : Integer;
+
+  vFlags        : DWORD;
+
+  tResult : dword ;
+
+  errCode : dword  ;
+  errMsg : pchar ;
+
+  BS: TStream ;
+
+  PointerArray: pabs_bir;
+  
+begin
+
+  New(vOperation);
+  New(PointerArray);
+  MSConnection1.Connect;
+  MSTable1.Open ;
+
+try
+  pIntValue:=0;
+  vOperation.OperationID := 0;
+  vOperation.Context     := nil;
+  vOperation.Timeout     := 5000;
+  vOperation.Flags       := 0;
+  vOperation.Callback    := @ABSDefaultCallback;
+
+  ABSInitialize;
+
+  ABSOpen('usb', vConnection);
+
+  BS := MSTable1.CreateBlobStream(MSTable1.FieldByName('Images'), bmRead);
+
+  vflags := 2;
+
+  tResult := ABSVerify(vConnection, vOperation ,1, PointerArray, pIntValue , vFlags);
+
+   ABSGetLastErrorInfo (errcode, errmsg);
+   MessageDlg (errMsg , mtError ,mbOKCancel, 2);
+
+ finally
+ Dispose(vOperation);
+ bs.Free;
+end;
+
+end;
+
+
+procedure TForm1.Button4Click(Sender: TObject);
+const
+  cDataCount  = 3;
+  cTemplCount = 1;
+ 
+var
+  i: Integer;
+  vOperation    : Pabs_operation;
+  vConnection   : dword;
+  vTemplates    : pabs_bir;
+  vTemplateCount: DWORD;
+  vTemplateSize : Cardinal;
+  vTemplate     : pabs_bir;
+  Result       : dword ;
+  vFlags        : DWORD;
+
+  errCode : dword  ;
+  errMsg : pchar ;
+   pIntValue : Integer;
+  bufBIR: Pointer;
+begin
+
+
+  New(vOperation);
+  try
+  pIntValue := 0;
+  vOperation.OperationID := 0;
+  vOperation.Context     := nil;
+  vOperation.Timeout     := 15000;
+  vOperation.Flags       := 0;
+  vOperation.Callback    := @ABSDefaultCallback;
+
+  ABSInitialize;
+
+  ABSOpen('usb', vConnection);
+
+  try
+
+   bufBIR := AllocMem(1772);
+   Result := 0 ;
+   vflags := 2;
+
+   result :=  ABSEnroll(vConnection, vOperation, bufBIR, 0 );
+
+   result := 0 ;
+   
+//I took the data I just captured and tried to verify agaisnt it and it does work great.
+// but in real world I need to save that template away in a database and load it back after time.
+   result := ABSVerify(vConnection, vOperation ,1, bufBIR, pIntValue , vFlags);
+
+
+   ABSGetLastErrorInfo (errcode, errmsg);
+   MessageDlg (errMsg , mtError ,mbOKCancel, 2);
+
+  finally
+   FreeMem(bufBIR);
+  end;
+
+    finally
+
+    end;
+
+    Dispose(vOperation);
+end;
+
+end.
+
